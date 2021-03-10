@@ -1,0 +1,20 @@
+services:
+  # the container
+  kde_emst:
+
+    # NOTE: needs nvidia-docker2
+    runtime: nvidia
+
+    # build: .
+    image: fa9d3f5c21c8
+
+    # to open interactive session
+    stdin_open: true
+    tty: true
+
+    container_name: kde_emst
+
+    # bind-mounts for file sharing
+    volumes:
+      - "./home:/home"
+      - "./root:/root"
