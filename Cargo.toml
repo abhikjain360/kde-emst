@@ -9,3 +9,4 @@ edition = "2018"
 [dependencies]
 lapacke = "0.3.0"
 cblas = "0.3.0"
+fnv = "1.0.7"
