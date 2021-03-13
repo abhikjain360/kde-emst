@@ -1,62 +1,146 @@
 #![allow(dead_code)]
 
-use std::sync::RwLock;
-
-// for distance
-use cblas::{saxpy, snrm2};
-
-// for quick access to all points in a given level in the CoverTree
 use fnv::FnvHashMap;
 
-pub fn distance<const D: usize>(a: &[f32; D], b: &[f32; D]) -> f32 {
-    let d = D as i32;
-    let mut temp = *a;
-    unsafe {
-        saxpy(d, -1.0, b, 1, &mut temp, 1);
-        snrm2(d, &temp, 1)
-    }
-}
+mod node;
+use node::*;
+pub use node::{Node, Point};
+mod dist;
+pub use dist::*;
 
-pub struct Node<const D: usize> {
-    pub point: [f32; D],
-    // INVARIANT: keeps the index of childrens as per the next level in the the hashmap of the CoverTree, and the index
-    // it points to must not be None
-    pub childs: Vec<usize>,
-}
-
-impl<const D: usize> Node<D> {
-    pub fn new(point: [f32; D]) -> Self {
-        Node {
-            point,
-            childs: Vec::new(),
-        }
-    }
-}
-
+/// The single-threaded cover tree.
 pub struct CoverTree<const D: usize> {
-    // INVARIANT: change the values in corresponding parent nodes is indexing of things change here
-    pub levels: FnvHashMap<i32, Vec<Option<RwLock<Node<D>>>>>,
-    // INVARIANT: top_level and bottom_level must always point to valid stuff if not std::
-    pub top_level: i32,
-    pub bottom_level: i32,
-    // root   = level[top_level][0]
-    // leaves = level[bottom_level]
+    /// HashMap corresponding to various levels.
+    pub levels: FnvHashMap<i32, FnvHashMap<i32, Node<D>>>,
+    /// The highest level in the cover tree, and the index in HashMap where the root exists.
+    pub root_level: (i32, i32),
+    /// The lowest level in the cover tree, and the index in HashMap where first leaf exists.
+    pub bottom_level: (i32, i32),
+    /// Total number of nodes in the cover tree.
+    pub size: usize,
 }
 
 impl<const D: usize> CoverTree<D> {
-    pub fn insert(&mut self) {}
-    // This should return a read lock or maybe just clone as needs to be safe to run in parallel
-    pub fn nearest_neighbour(&self, point: [f32; D]) -> &[f32; D] {
-        todo!()
+    /// Creates a new cover tree with the given point as root at the given level. Will also be the
+    /// only leaf as no other point exists for now.
+    pub fn new(point: Point<D>, level: i32) -> Self {
+        CoverTree {
+            levels: {
+                // creating a hashmap with keys as levels and values as hashmap with keys as index
+                // and nodes as values. I like confusing the future me.
+                let mut root_level = FnvHashMap::default();
+                let mut root_level_hashmap = FnvHashMap::default();
+                root_level_hashmap.insert(0, Node::new(point));
+                root_level.insert(level, root_level_hashmap);
+                root_level
+            },
+            root_level: (level, 0),
+            bottom_level: (level, 0),
+            size: 1,
+        }
+    }
+    /// Calculate the distance between the root and the given point.
+    #[inline]
+    pub fn distance(&self, point: &Point<D>) -> f32 {
+        distance(point, &self.get(self.root_level.0, self.root_level.1).point)
     }
 
-    pub fn merge(&mut self, mut other: CoverTree<D>) {}
-    fn merge_helper(&mut self, mut other: CoverTree<D>) {}
-}
+    /// Retrieve an immutable reference to a node.
+    #[inline]
+    pub fn get(&self, level: i32, index: i32) -> &Node<D> {
+        &self.levels[&level][&index]
+    }
 
-impl<const D: usize> From<Vec<[f32; D]>> for CoverTree<D> {
-    // needs to run in parallel
-    fn from(data: Vec<[f32; D]>) -> Self {
-        todo!()
+    /// Retrieve a mutable reference to a node.
+    #[inline]
+    pub fn get_mut(&mut self, level: i32, index: i32) -> Option<&mut Node<D>> {
+        self.levels.get_mut(&level)?.get_mut(&index)
+    }
+
+    /// Insert an point into the cover tree.
+    pub fn insert(&mut self, point: Point<D>) {
+        let mut point_dist = self.distance(&point);
+        let mut cover_dist = covdist(self.root_level.0);
+        if point_dist > cover_dist {
+            while point_dist > cover_dist {
+                self.move_leaf_to_root();
+                point_dist = self.distance(&point);
+                cover_dist = covdist(self.root_level.0);
+            }
+            self.levels.insert(self.root_level.0 + 1, {
+                let mut h = FnvHashMap::default();
+                h.insert(0, Node::new(point));
+                h
+            });
+        } else {
+            self.insert_helper(point, self.root_level);
+        }
+        self.size += 1;
+    }
+
+    fn insert_helper(&mut self, point: Point<D>, start_node: (i32, i32)) -> Option<()> {
+        let q_level = start_node.0 - 1;
+        // a level at start_level.0 is guaranteed to exist, as only valid arguments are provided
+        for q in self.get(start_node.0, start_node.1).children.clone() {
+            if distance(&self.get(q_level, q).point, &point) <= covdist(start_node.0 - 1) {
+                self.insert_helper(point, (q_level, q));
+                return Some(());
+            }
+        }
+        match self.levels.get_mut(&q_level) {
+            Some(hashmap) => {
+                let key = *hashmap.keys().min()?;
+                hashmap.insert(key, Node::new(point));
+                self.get_mut(start_node.0, start_node.1)?
+                    .children
+                    .insert(key);
+            }
+            None => {
+                self.levels.insert(q_level, {
+                    let mut hashmap = FnvHashMap::default();
+                    hashmap.insert(0, Node::new(point));
+                    hashmap
+                });
+                self.get_mut(start_node.0, start_node.1)?.children.insert(0);
+            }
+        }
+
+        Some(())
+    }
+
+    /// Move a leaf node to the root, increasing the root level by 1. Make the current root the
+    /// only child of the new root.
+    pub fn move_leaf_to_root(&mut self) -> Option<()> {
+        // get a leaf node
+        let mut leaf = self
+            .levels
+            .get_mut(&self.bottom_level.0)?
+            .remove(&self.bottom_level.1)?;
+
+        // update parent to forget about the leaf node
+        let leaf_index = self.bottom_level.1;
+        self.get_mut(self.bottom_level.0 + 1, leaf.parent?)?
+            .children
+            .remove(&leaf_index);
+
+        // adding current root as a child of leaf
+        leaf.children.insert(self.root_level.1);
+
+        // adding leaf as new root
+        self.levels.insert(self.root_level.0 + 1, {
+            let mut hashmap = FnvHashMap::default();
+            hashmap.insert(0, leaf)?;
+            hashmap
+        })?;
+        self.root_level.0 += 1;
+        self.root_level.1 = 0;
+
+        Some(())
+    }
+
+    fn children_as_set(&self, level: i32, index: i32) -> NodeSet {
+        let mut set = FnvHashMap::default();
+        set.insert(level - 1, self.get(level, index).children.clone());
+        set
     }
 }

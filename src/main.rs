@@ -1,13 +1,14 @@
+#![allow(dead_code)]
+
+#[allow(unused_imports)]
 mod cover_tree;
 mod dsu;
 mod kde;
-use kde::*;
+use cover_tree::*;
 
 fn main() {
-    let mean = [0f32; 3];
-    let cov = [[2f32, -1.0, 0.0], [-1.0, 2.0, -1.0], [0.0, -1.0, 2.0]];
-    let x = [0f32; 3];
-    let data = vec![[0f32; 3]];
-    let z = kde(1.0, &x, &data, gaussian_kernel(mean, cov));
-    println!("main_x = {}", z);
+    let mut cover_tree = CoverTree::new([0.0, 0.0, 0.0], 1);
+    cover_tree.insert([2.0, 2.0, 2.0]);
+    cover_tree.insert([1.0, 1.0, 1.0]);
+    cover_tree.insert([0.5, 0.5, 0.5]);
 }

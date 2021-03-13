@@ -18,6 +18,7 @@ pub fn gaussian_kernel<const D: usize>(
     }
 
     let mut determinant = 1f32;
+    #[allow(clippy::clippy::needless_range_loop)]
     for i in 0..D {
         determinant *= lower[i][i];
     }
