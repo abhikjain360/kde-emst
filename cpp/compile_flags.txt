@@ -1,0 +1,12 @@
+-std=c++20
+-Wall
+-Wpedantic
+-lopenblas
+-g
+-I/usr/include
+-I/usr/local/include
+-I/usr/lib/gcc/include/c++/10.2.0
+-I/usr/lib/gcc/include/c++/10.2.0/x86_64-pc-linux-gnu
+-I/usr/lib/gcc/include/c++/10.2.0/backward
+-I/usr/lib/gcc/x86_64-pc-linux-gnu/10.2.0/include
+-I/usr/lib/gcc/x86_64-pc-linux-gnu/10.2.0/include-fixed
