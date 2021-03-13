@@ -60,7 +60,7 @@ impl<const D: usize> CoverTree<D> {
     }
 
     /// Insert an point into the cover tree.
-    pub fn insert(&mut self, point: Point<D>) {
+    pub fn insert(&mut self, point: Point<D>) -> Option<()> {
         let mut point_dist = self.distance(&point);
         let mut cover_dist = covdist(self.root_level.0);
         if point_dist > cover_dist {
@@ -69,15 +69,29 @@ impl<const D: usize> CoverTree<D> {
                 point_dist = self.distance(&point);
                 cover_dist = covdist(self.root_level.0);
             }
-            self.levels.insert(self.root_level.0 - 1, {
-                let mut h = FnvHashMap::default();
-                h.insert(0, Node::new(point));
-                h
-            });
+            if self.size == 1 {
+                self.levels.insert(self.root_level.0 - 1, {
+                    let mut h = FnvHashMap::default();
+                    h.insert(0, Node::with_parent(point, self.root_level.1));
+                    h
+                });
+                self.get_mut(self.root_level.0, self.root_level.1)?
+                    .children
+                    .insert(0);
+                self.bottom_level = (self.root_level.0 - 1, 0);
+            } else {
+                let level = self.levels.get_mut(&(self.root_level.0 - 1))?;
+                let key = level.keys().max()? + 1;
+                level.insert(key, Node::with_parent(point, self.root_level.1));
+                self.get_mut(self.root_level.0, self.root_level.1)?
+                    .children
+                    .insert(key);
+            }
         } else {
             self.insert_helper(point, self.root_level);
         }
         self.size += 1;
+        Some(())
     }
 
     fn insert_helper(&mut self, point: Point<D>, start_node: (i32, i32)) -> Option<()> {
@@ -91,8 +105,8 @@ impl<const D: usize> CoverTree<D> {
         }
         match self.levels.get_mut(&q_level) {
             Some(hashmap) => {
-                let key = *hashmap.keys().min()?;
-                hashmap.insert(key, Node::new(point));
+                let key = *hashmap.keys().max()? + 1;
+                hashmap.insert(key, Node::with_parent(point, start_node.1));
                 self.get_mut(start_node.0, start_node.1)?
                     .children
                     .insert(key);
@@ -100,7 +114,7 @@ impl<const D: usize> CoverTree<D> {
             None => {
                 self.levels.insert(q_level, {
                     let mut hashmap = FnvHashMap::default();
-                    hashmap.insert(0, Node::new(point));
+                    hashmap.insert(0, Node::with_parent(point, start_node.1));
                     hashmap
                 });
                 self.get_mut(start_node.0, start_node.1)?.children.insert(0);
@@ -117,7 +131,7 @@ impl<const D: usize> CoverTree<D> {
         // the root_level, so that's what we are going to do.
         if self.size == 1 {
             // get a leaf node
-            let mut leaf = self
+            let leaf = self
                 .levels
                 .remove(&self.root_level.0)?
                 .remove(&self.root_level.1)?;

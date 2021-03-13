@@ -28,4 +28,12 @@ impl<const D: usize> Node<D> {
             max_dist: None,
         }
     }
+    pub fn with_parent(point: Point<D>, parent: i32) -> Self {
+        Node {
+            point,
+            children: FnvHashSet::default(),
+            parent: Some(parent),
+            max_dist: None,
+        }
+    }
 }
