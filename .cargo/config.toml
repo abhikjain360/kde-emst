@@ -1,2 +1,5 @@
-[target.x86_64-unknown-linux-gnu]
+[build]
 rustflags = ["-l", "openblas"]
+
+[target.release]
+rustc-cfg = ["target-cpu=native"]
