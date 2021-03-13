@@ -1,5 +1,7 @@
 #![allow(dead_code)]
 
+use std::borrow::Borrow;
+
 use fnv::FnvHashMap;
 
 mod node;
@@ -67,7 +69,7 @@ impl<const D: usize> CoverTree<D> {
                 point_dist = self.distance(&point);
                 cover_dist = covdist(self.root_level.0);
             }
-            self.levels.insert(self.root_level.0 + 1, {
+            self.levels.insert(self.root_level.0 - 1, {
                 let mut h = FnvHashMap::default();
                 h.insert(0, Node::new(point));
                 h
@@ -111,11 +113,60 @@ impl<const D: usize> CoverTree<D> {
     /// Move a leaf node to the root, increasing the root level by 1. Make the current root the
     /// only child of the new root.
     pub fn move_leaf_to_root(&mut self) -> Option<()> {
+        // 1 node, is the root and leaf at same time. But this function was called to increase
+        // the root_level, so that's what we are going to do.
+        if self.size == 1 {
+            // get a leaf node
+            let mut leaf = self
+                .levels
+                .remove(&self.root_level.0)?
+                .remove(&self.root_level.1)?;
+            // putting it on a level above
+            self.levels.insert(self.root_level.0 + 1, {
+                let mut hashmap = FnvHashMap::default();
+                hashmap.insert(0, leaf);
+                hashmap
+            });
+            // updating corresponding stuff
+            self.root_level = (self.root_level.0 + 1, 0);
+            self.bottom_level = self.root_level;
+
+            return Some(());
+        }
+
         // get a leaf node
         let mut leaf = self
             .levels
             .get_mut(&self.bottom_level.0)?
             .remove(&self.bottom_level.1)?;
+
+        // updating self.bottom_level
+        if self.levels.get(&self.bottom_level.0)?.len() == 0 {
+            // if no leaf nodes left ...
+            let mut new_bottom_level = self.bottom_level.0 + 1;
+            // ... move up until we find new node ...
+            loop {
+                match self.levels.get(&new_bottom_level) {
+                    Some(level) => {
+                        if level.len() > 0 {
+                            // ... and set that as new bottom
+                            self.bottom_level = (new_bottom_level, *level.keys().min()?);
+                            break;
+                        } else {
+                            // empty levels need not exist
+                            self.levels.remove(&new_bottom_level);
+                            new_bottom_level += 1;
+                        }
+                    }
+                    None => {
+                        new_bottom_level += 1;
+                    }
+                }
+            }
+        } else {
+            // else get the next leaf on same level, and change index at self.bottom_level
+            self.bottom_level.1 = *self.levels.get(&self.bottom_level.0)?.keys().min()?;
+        }
 
         // update parent to forget about the leaf node
         let leaf_index = self.bottom_level.1;
