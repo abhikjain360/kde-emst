@@ -13,11 +13,11 @@ pub fn distance<const D: usize>(a: &[f32; D], b: &[f32; D]) -> f32 {
 /// Gives the covering distance at the given `level`
 #[inline]
 pub fn covdist(level: i32) -> f32 {
-    (1 << level as usize) as f32
+    2f32.powi(level)
 }
 
 /// Gives the seperation distance at the given `level`
 #[inline]
 pub fn sepdist(level: i32) -> f32 {
-    (1 << (level - 1) as usize) as f32
+    2f32.powi(level - 1)
 }
