@@ -29,21 +29,22 @@ pub struct CoverTree<const D: usize> {
 impl<const D: usize> Debug for CoverTree<D> {
     fn fmt(&self, formatter: &mut Formatter<'_>) -> fmt::Result {
         formatter.write_str("{\n")?;
-        writeln!(formatter, "size: {}", self.size)?;
-        writeln!(formatter, "root_level: {:?}", self.root_level)?;
-        writeln!(formatter, "bottom_level: {:?}", self.bottom_level)?;
-        formatter.write_str("levels {\n")?;
+        writeln!(formatter, "\tsize: {}", self.size)?;
+        writeln!(formatter, "\troot_level: {:?}", self.root_level)?;
+        writeln!(formatter, "\tbottom_level: {:?}", self.bottom_level)?;
+        formatter.write_str("\tlevels {\n")?;
         for (level, hashmap) in &self.levels {
-            writeln!(formatter, "\t{} : [", level)?;
+            writeln!(formatter, "\t\t{} :", level)?;
             for (idx, node) in hashmap {
-                write!(formatter, "\t\t{} : {:?}; children: ", idx, node.point)?;
+                write!(formatter, "\t\t\t{} : {:?};\tchildren: ", idx, node.point)?;
                 for child in &node.children {
                     write!(formatter, "{}, ", child)?;
                 }
                 formatter.write_str("\n")?;
             }
+            formatter.write_str("\n")?;
         }
-        formatter.write_str("\t]\n}\n}")
+        formatter.write_str("\t}\n}")
     }
 }
 
@@ -124,18 +125,16 @@ impl<const D: usize> CoverTree<D> {
                     .insert(key);
             }
         } else {
-            self.insert_helper(point);
-            /* self.insert_helper(point, self.root_level); */
+            self.insert_helper(self.root_level, point);
         }
         self.size += 1;
         Some(())
     }
 
-
     // TODO: make me general
-    fn insert_helper(&mut self, point: Point<D>) -> Option<()> {
-        let mut q_level = self.root_level.0 - 1;
-        let mut cur_node = self.root_level;
+    fn insert_helper(&mut self, start_node: (i32, i32), point: Point<D>) -> Option<()> {
+        let mut q_level = start_node.0 - 1;
+        let mut cur_node = start_node;
         let mut children = &self.get(cur_node.0, cur_node.1).children;
 
         loop {
@@ -156,7 +155,7 @@ impl<const D: usize> CoverTree<D> {
 
         match self.levels.get_mut(&q_level) {
             Some(hashmap) => {
-                let key = *hashmap.keys().max()? + 1;
+                let key = *hashmap.keys().max().unwrap_or(&0) + 1;
                 hashmap.insert(key, Node::with_parent(point, cur_node.1));
                 self.get_mut(cur_node.0, cur_node.1)?.children.insert(key);
             }
@@ -206,6 +205,7 @@ impl<const D: usize> CoverTree<D> {
         if self.levels.get(&self.bottom_level.0)?.is_empty() {
             // if no leaf nodes left ...
             let mut new_bottom_level = self.bottom_level.0 + 1;
+            let mut old_bottom_level = self.bottom_level.0;
             // ... move up until we find new node ...
             loop {
                 match self.levels.get(&new_bottom_level) {
@@ -224,6 +224,10 @@ impl<const D: usize> CoverTree<D> {
                         new_bottom_level += 1;
                     }
                 }
+            }
+
+            for level in old_bottom_level..new_bottom_level {
+                self.levels.remove(&level);
             }
         } else {
             // else get the next leaf on same level, and change index at self.bottom_level
@@ -249,6 +253,7 @@ impl<const D: usize> CoverTree<D> {
     }
 
     pub fn merge(&mut self, mut other: CoverTree<D>) -> Option<()> {
+        let new_size = self.size + other.size;
         if self.root_level.0 < other.root_level.0 {
             std::mem::swap(self, &mut other);
         }
@@ -258,7 +263,8 @@ impl<const D: usize> CoverTree<D> {
         let other_root_level = other.root_level;
         let leftovers_others = self.merge_helper(self.root_level, &mut other, other_root_level);
         for node in leftovers_others.into_iter() {
-            self.insert(
+            self.insert_helper(
+                self.root_level,
                 other
                     .levels
                     .get_mut(&(other.root_level.0 - 1))?
@@ -266,6 +272,7 @@ impl<const D: usize> CoverTree<D> {
                     .point,
             );
         }
+        self.size = new_size;
         Some(())
     }
 
@@ -328,7 +335,10 @@ impl<const D: usize> CoverTree<D> {
             self.insert(other.get(other_start_node.0 - 1, new_child).point);
         }
 
-        self.insert(other.get(other_start_node.0, other_start_node.1).point);
+        self.insert_helper(
+            start_node,
+            other.get(other_start_node.0, other_start_node.1).point,
+        );
 
         for r in leftovers.clone().into_iter() {
             if distance(
@@ -336,7 +346,7 @@ impl<const D: usize> CoverTree<D> {
                 &other.get(other_start_node.0 - 1, r).point,
             ) <= covdist(start_node.0)
             {
-                self.insert(other.get(other_start_node.0 - 1, r).point);
+                self.insert_helper(start_node, other.get(other_start_node.0 - 1, r).point);
                 leftovers.remove(&r);
             }
         }
